@@ -11,10 +11,17 @@
 
 ## 运行前准备
 
-1. 安装 Longbridge Python SDK（`longport.openapi`）。
-2. 配置 OpenAPI 鉴权环境变量（至少包括 app key/secret/token）。
+1. 一键安装依赖：
 
-> 脚本默认通过 `Config.from_env()` 读取环境变量，也可配合本地 Longbridge 配置文件使用。
+```bash
+pip install -r requirements.txt
+```
+
+2. 准备 OpenAPI 鉴权信息：
+   - 推荐直接在仓库根目录维护 `key` 文件（脚本会自动读取并写入 `LONGPORT_*` 环境变量）
+   - 也可手工配置环境变量（`LONGPORT_APP_KEY` / `LONGPORT_APP_SECRET` / `LONGPORT_ACCESS_TOKEN`）
+
+> 脚本会优先读取仓库内 `key` 文件，再通过 `Config.from_env()` 初始化。
 
 ### OpenAPI 鉴权环境变量去哪里配置？
 
@@ -78,6 +85,8 @@ python option_data_collector.py \
 
 ## 输出内容
 
+
+另外会自动生成同名 Markdown 报告文件（例如输出 `aapl_call_280_2026-03-30.json` 时，同时生成 `aapl_call_280_2026-03-30.md`），便于快速查看筛选合约与抓取摘要。
 JSON 主要字段：
 
 - `requested`：请求参数（含原始输入和标准化后的 symbol）

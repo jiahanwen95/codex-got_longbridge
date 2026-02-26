@@ -5,11 +5,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from dataclasses import asdict, is_dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Any, Callable, Iterable, Sequence, TYPE_CHECKING
+from pathlib import Path
+from typing import Any, Iterable, Sequence, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from longport.openapi import QuoteContext
@@ -105,6 +107,80 @@ def try_call(
     raise AttributeError(f"未找到可用方法: {method_names}")
 
 
+def load_api_credentials_from_key_file(key_file: str = "key") -> None:
+    """从仓库内 key 文件读取凭证，并写入 LONGPORT_* 环境变量。"""
+    path = Path(key_file)
+    if not path.exists():
+        return
+
+    mapping = {
+        "APPKEY": "LONGPORT_APP_KEY",
+        "APPSECRET": "LONGPORT_APP_SECRET",
+        "ACCESSTOKEN": "LONGPORT_ACCESS_TOKEN",
+    }
+    loaded = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if ":" not in line:
+            continue
+        raw_key, raw_value = line.split(":", 1)
+        field = raw_key.strip().upper()
+        env_name = mapping.get(field)
+        if not env_name:
+            continue
+        value = raw_value.strip()
+        if value:
+            loaded[env_name] = value
+
+    for env_name, value in loaded.items():
+        os.environ[env_name] = value
+
+
+def generate_markdown_report(result: dict[str, Any]) -> str:
+    requested = result.get("requested", {})
+    summary = result.get("summary", {})
+    selected_contracts = result.get("selected_contracts", [])
+    methods = result.get("sdk_methods", {})
+
+    lines = [
+        "# 期权数据抓取报告",
+        "",
+        "## 请求参数",
+        f"- 标的: `{requested.get('symbol', '')}`",
+        f"- 到期日: `{requested.get('expiry', '')}`",
+        f"- 行权价筛选: `{requested.get('strike', '')}`",
+        f"- 方向筛选: `{requested.get('right', '')}`",
+        f"- 生成时间(UTC): `{requested.get('generated_at', '')}`",
+        "",
+        "## 汇总",
+        f"- 期权代码总数: `{summary.get('option_count', 0)}`",
+        f"- 期权链行数: `{summary.get('chain_rows', 0)}`",
+        f"- 筛选合约数: `{summary.get('selected_contracts', 0)}`",
+        f"- 错误数: `{summary.get('errors', 0)}`",
+        "",
+        "## SDK 方法",
+    ]
+
+    for name, method in methods.items():
+        lines.append(f"- {name}: `{method}`")
+
+    lines.extend(["", "## 筛选到的合约"])
+    if not selected_contracts:
+        lines.append("- 无匹配合约")
+    else:
+        lines.extend(
+            [
+                "| 类型 | 行权价 | 代码 |",
+                "| --- | ---: | --- |",
+            ]
+        )
+        for row in selected_contracts:
+            lines.append(
+                f"| {row.get('type', '')} | {row.get('strike_price', '')} | `{row.get('symbol', '')}` |"
+            )
+
+    return "\n".join(lines) + "\n"
+
+
 def fetch_batched(
     ctx: Any,
     option_symbols: Sequence[str],
@@ -191,6 +267,7 @@ def main() -> None:
     args = parse_args()
     symbol = normalize_symbol(args.symbol)
     expiry = date.fromisoformat(args.expiry)
+    load_api_credentials_from_key_file()
 
     from longport.openapi import Config, QuoteContext
 
@@ -342,7 +419,15 @@ def main() -> None:
     with open(args.output, "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
 
-    print(f"完成: 已抓取 {len(option_symbols)} 个期权合约，输出到 {args.output}")
+    markdown_output = str(Path(args.output).with_suffix(".md"))
+    with open(markdown_output, "w", encoding="utf-8") as f:
+        f.write(generate_markdown_report(result))
+
+    print(
+        "完成: "
+        f"已抓取 {len(option_symbols)} 个期权合约，输出到 {args.output}，"
+        f"并生成报告 {markdown_output}"
+    )
 
 
 if __name__ == "__main__":
